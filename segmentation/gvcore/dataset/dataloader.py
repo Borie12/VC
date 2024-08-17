@@ -1,10 +1,11 @@
 import torch
-from torch.utils.data.dataloader import DataLoader
-from collections import Iterator
-
+from torch.utils.data import DataLoader, Dataset
+from collections.abc import Iterable
+from typing import Optional, Callable, Dict, Any
+from torchvision import transforms
 
 class Prefetcher(Iterator):
-    def __init__(self, loader):
+    def __init__(self, loader: DataLoader):
         self._loader = loader
         self.loader = iter(self._loader)
         self.stream = torch.cuda.Stream()
@@ -13,7 +14,7 @@ class Prefetcher(Iterator):
         torch.cuda.synchronize()
 
     @staticmethod
-    def to_device(batch, device):
+    def to_device(batch: Any, device: str):
         if isinstance(batch, dict):
             for key in batch:
                 batch[key] = batch[key].to(device)
@@ -43,18 +44,18 @@ class Prefetcher(Iterator):
 class BasicDataloader:
     def __init__(
         self,
-        dataset,
-        batch_size=1,
-        shuffle=False,
-        sampler=None,
-        batch_sampler=None,
-        num_workers=0,
-        collate_fn=None,
-        pin_memory=False,
-        drop_last=False,
-        worker_init_fn=None,
-        prefetch=False,
-        batch_transforms=None,
+        dataset: Dataset,
+        batch_size: int = 1,
+        shuffle: bool = False,
+        sampler: Optional[torch.utils.data.Sampler] = None,
+        batch_sampler: Optional[torch.utils.data.Sampler] = None,
+        num_workers: int = 0,
+        collate_fn: Optional[Callable] = None,
+        pin_memory: bool = False,
+        drop_last: bool = False,
+        worker_init_fn: Optional[Callable] = None,
+        prefetch: bool = False,
+        batch_transforms: Optional[Callable] = None,
     ):
         if sampler is not None or batch_sampler is not None:
             shuffle = False
@@ -88,7 +89,7 @@ class BasicDataloader:
         return len(self.dataset)
 
     @staticmethod
-    def to_device(batch, device):
+    def to_device(batch: Any, device: str):
         if isinstance(batch, dict):
             for key in batch:
                 batch[key] = batch[key].to(device)
@@ -100,7 +101,7 @@ class BasicDataloader:
         return batch
 
     @torch.no_grad()
-    def get_batch(self, device="cuda"):
+    def get_batch(self, device: str = "cuda") -> Optional[Dict[str, torch.Tensor]]:
         try:
             batch = next(self.iter_loader)
             self.to_device(batch, device)
@@ -110,3 +111,52 @@ class BasicDataloader:
             batch = None
             self.iter_loader = iter(self.dataloader)
         return batch
+
+
+# Advanced Data Augmentation
+class AdvancedDataAugmentation:
+    def __init__(self):
+        self.augmentations = transforms.Compose([
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomVerticalFlip(),
+            transforms.RandomRotation(30),
+            transforms.ColorJitter(brightness=0.1, contrast=0.1),
+        ])
+
+    def __call__(self, batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        if 'image' in batch:
+            batch['image'] = self.augmentations(batch['image'])
+        return batch
+
+
+# Example usage:
+if __name__ == "__main__":
+    # Create a dataset (example)
+    class ExampleDataset(Dataset):
+        def __init__(self, transform=None):
+            self.transform = transform
+
+        def __len__(self):
+            return 100  # Example length
+
+        def __getitem__(self, idx):
+            # Dummy image and label
+            image = torch.rand(3, 224, 224)  # Example image tensor
+            label = torch.tensor(0)  # Example label
+            sample = {'image': image, 'label': label}
+            if self.transform:
+                sample = self.transform(sample)
+            return sample
+
+    # Create dataset and dataloader
+    dataset = ExampleDataset(transform=AdvancedDataAugmentation())
+    dataloader = BasicDataloader(
+        dataset=dataset,
+        batch_size=4,
+        shuffle=True,
+        prefetch=True
+    )
+
+    # Fetch a batch
+    batch = dataloader.get_batch()
+    print(batch)
